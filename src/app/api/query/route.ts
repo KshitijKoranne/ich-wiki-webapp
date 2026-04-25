@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import wikiData from "@/lib/wiki-data.json";
 
-// Allow longer execution on Vercel
-
-// Pre-compute context at module level — runs once, not per request
 const data = wikiData as any;
 
+// Build full context once
 const guidelineCtx = Object.values(data.guidelines as Record<string, any>)
   .map(
     (g: any) =>
@@ -36,15 +34,37 @@ const CONTEXT = [guidelineCtx, conceptCtx, topicCtx]
 const SYSTEM_PROMPT = `You are an ICH Q-series guidelines expert with complete knowledge of all ICH Q-series guidelines.
 
 RULES:
-1. Answer directly and authoritatively. No hedging, no disclaimers, no "I should note", no "I'd recommend consulting the full text".
+1. Answer directly and authoritatively. No hedging, no disclaimers.
 2. Cite the specific guideline (e.g., "Per ICH Q1A(R2)...").
 3. Synthesize across multiple guidelines when needed.
 4. You ARE the reference. Do not suggest consulting other sources.
-5. If not covered in the knowledge base, say "This is not covered in the ICH Q-series guidelines."
+5. If not covered, say "This is not covered in the ICH Q-series guidelines."
 6. Concise and factual. No preamble, no closing suggestions.
+7. At the end of your answer, on a new line, write SOURCES: followed by a comma-separated list of guideline IDs you referenced (e.g., SOURCES: Q1A, Q7, Q10). Only include guidelines you actually cited.
 
 KNOWLEDGE BASE:
 ${CONTEXT}`;
+
+// Extract relevant excerpts from wiki for cited guidelines
+function getExcerpts(sourceIds: string[]): Record<string, { guideline: string; title: string; excerpt: string }> {
+  const result: Record<string, any> = {};
+  for (const id of sourceIds) {
+    // Try various key formats
+    const keys = [id, id.replace(/[()]/g, ''), id.replace('(', '-').replace(')', '')];
+    for (const key of keys) {
+      const g = data.guidelines[key];
+      if (g) {
+        result[id] = {
+          guideline: g.guideline || id,
+          title: g.title,
+          excerpt: (g.summary || "").slice(0, 200),
+        };
+        break;
+      }
+    }
+  }
+  return result;
+}
 
 export async function POST(req: NextRequest) {
   const { query } = await req.json();
@@ -55,15 +75,12 @@ export async function POST(req: NextRequest) {
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    return NextResponse.json(
-      { error: "OPENROUTER_API_KEY not configured" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "OPENROUTER_API_KEY not configured" }, { status: 500 });
   }
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25000);
+    const timeout = setTimeout(() => controller.abort(), 9000);
 
     const response = await fetch(
       "https://openrouter.ai/api/v1/chat/completions",
@@ -89,7 +106,6 @@ export async function POST(req: NextRequest) {
     );
 
     clearTimeout(timeout);
-
     const result = await response.json();
 
     if (result.error) {
@@ -99,27 +115,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const text = result.choices?.[0]?.message?.content || "";
-    const model = result.model || "openrouter/free";
-
+    let text = result.choices?.[0]?.message?.content || "";
     if (!text) {
-      return NextResponse.json(
-        { error: "Empty response from model" },
-        { status: 502 }
-      );
+      return NextResponse.json({ error: "Empty response from model" }, { status: 502 });
     }
 
-    return NextResponse.json({ answer: text, model });
+    // Parse SOURCES line
+    let sources: Record<string, any> = {};
+    const sourcesMatch = text.match(/SOURCES:\s*(.+?)$/m);
+    if (sourcesMatch) {
+      const ids = sourcesMatch[1].split(",").map((s: string) => s.trim()).filter(Boolean);
+      sources = getExcerpts(ids);
+      // Remove SOURCES line from displayed text
+      text = text.replace(/\n?SOURCES:.+$/m, "").trim();
+    }
+
+    return NextResponse.json({
+      answer: text,
+      sources,
+      model: result.model || "openrouter/free",
+    });
   } catch (err: any) {
     if (err.name === "AbortError") {
-      return NextResponse.json(
-        { error: "Request timed out. Try again." },
-        { status: 504 }
-      );
+      return NextResponse.json({ error: "Request timed out. Try again." }, { status: 504 });
     }
-    return NextResponse.json(
-      { error: err.message || "Failed to query" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || "Failed to query" }, { status: 500 });
   }
 }

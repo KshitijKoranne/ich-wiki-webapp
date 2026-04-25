@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import wikiData from "@/lib/wiki-data.json";
 
 // Allow longer execution on Vercel
-export const maxDuration = 30;
 
 // Pre-compute context at module level — runs once, not per request
 const data = wikiData as any;

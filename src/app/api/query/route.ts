@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import wikiData from "@/lib/wiki-data.json";
 
-const MODELS = [
-  "meta-llama/llama-3.3-70b-instruct:free",
-  "qwen/qwen3-235b-a22b:free",
-  "openrouter/free",
-];
-
 export async function POST(req: NextRequest) {
   const { query } = await req.json();
 
@@ -64,59 +58,53 @@ RULES:
 KNOWLEDGE BASE:
 ${context}`;
 
-  let lastError = "";
+  try {
+    const response = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://ich-wiki-webapp.vercel.app",
+          "X-Title": "ICH LLM Wiki",
+        },
+        body: JSON.stringify({
+          model: "openrouter/free",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: query },
+          ],
+          max_tokens: 1500,
+          temperature: 0.3,
+        }),
+      }
+    );
 
-  for (const model of MODELS) {
-    try {
-      const response = await fetch(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            "HTTP-Referer":
-              process.env.VERCEL_URL
-                ? `https://${process.env.VERCEL_URL}`
-                : "http://localhost:3000",
-            "X-Title": "ICH LLM Wiki",
-          },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: query },
-            ],
-            max_tokens: 1500,
-            temperature: 0.3,
-          }),
-        }
+    const result = await response.json();
+
+    if (result.error) {
+      return NextResponse.json(
+        { error: result.error.message || JSON.stringify(result.error) },
+        { status: 502 }
       );
-
-      const result = await response.json();
-
-      if (result.error) {
-        lastError = `${model}: ${result.error.message || JSON.stringify(result.error)}`;
-        continue;
-      }
-
-      const text =
-        result.choices?.[0]?.message?.content || "";
-
-      if (!text) {
-        lastError = `${model}: Empty response`;
-        continue;
-      }
-
-      return NextResponse.json({ answer: text, model });
-    } catch (err: any) {
-      lastError = `${model}: ${err.message}`;
-      continue;
     }
-  }
 
-  return NextResponse.json(
-    { error: `All models failed. Last error: ${lastError}` },
-    { status: 502 }
-  );
+    const text = result.choices?.[0]?.message?.content || "";
+    const model = result.model || "openrouter/free";
+
+    if (!text) {
+      return NextResponse.json(
+        { error: "Empty response from model" },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({ answer: text, model });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message || "Failed to query" },
+      { status: 500 }
+    );
+  }
 }

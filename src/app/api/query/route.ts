@@ -2,11 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import wikiData from "@/lib/wiki-data.json";
 
-/* ── Redis ───────────────────────────────────────────────────────── */
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
+/* ── Lazy Redis ──────────────────────────────────────────────────── */
+let redis: Redis | null = null;
+
+function getRedis(): Redis | null {
+  if (!redis && process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    redis = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    });
+  }
+  return redis;
+}
 
 /* ── Normalize query for cache key ───────────────────────────────── */
 function normalizeQuery(q: string): string {
@@ -64,11 +71,7 @@ function getExcerpts(sourceIds: string[]): Record<string, { guideline: string; t
     for (const key of keys) {
       const g = data.guidelines[key];
       if (g) {
-        result[id] = {
-          guideline: g.guideline || id,
-          title: g.title,
-          excerpt: (g.summary || "").slice(0, 200),
-        };
+        result[id] = { guideline: g.guideline || id, title: g.title, excerpt: (g.summary || "").slice(0, 200) };
         break;
       }
     }
@@ -89,15 +92,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "OPENROUTER_API_KEY not configured" }, { status: 500 });
   }
 
-  // Check cache
   const cacheKey = `ichguru:${normalizeQuery(query)}`;
-  try {
-    const cached = await redis.get<{ answer: string; sources: Record<string, any> }>(cacheKey);
-    if (cached) {
-      return NextResponse.json({ ...cached, cached: true });
+  const r = getRedis();
+
+  // Check cache
+  if (r) {
+    try {
+      const cached = await r.get<{ answer: string; sources: Record<string, any> }>(cacheKey);
+      if (cached) {
+        return NextResponse.json({ ...cached, cached: true });
+      }
+    } catch {
+      // Cache miss or error — continue
     }
-  } catch {
-    // Cache miss or Redis error — continue to API
   }
 
   // Call OpenRouter
@@ -137,7 +144,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Empty response from model" }, { status: 502 });
     }
 
-    // Parse SOURCES
     let sources: Record<string, any> = {};
     const sourcesMatch = text.match(/SOURCES:\s*(.+?)$/m);
     if (sourcesMatch) {
@@ -148,11 +154,13 @@ export async function POST(req: NextRequest) {
 
     const responseData = { answer: text, sources, model: result.model || "openrouter/free" };
 
-    // Cache the response (expire in 7 days)
-    try {
-      await redis.set(cacheKey, { answer: text, sources }, { ex: 604800 });
-    } catch {
-      // Cache write failed — non-critical
+    // Cache
+    if (r) {
+      try {
+        await r.set(cacheKey, { answer: text, sources }, { ex: 604800 });
+      } catch {
+        // Non-critical
+      }
     }
 
     return NextResponse.json({ ...responseData, cached: false });

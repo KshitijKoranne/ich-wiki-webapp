@@ -1,6 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
 import wikiData from "@/lib/wiki-data.json";
 
+// Allow longer execution on Vercel
+export const maxDuration = 30;
+
+// Pre-compute context at module level — runs once, not per request
+const data = wikiData as any;
+
+const guidelineCtx = Object.values(data.guidelines as Record<string, any>)
+  .map(
+    (g: any) =>
+      `## ${g.guideline} — ${g.title}\n${g.summary}\n${(g.key_requirements || "").slice(0, 1500)}`
+  )
+  .join("\n\n---\n\n");
+
+const conceptCtx = Object.values(data.concepts as Record<string, any>)
+  .map(
+    (c: any) =>
+      `## Concept: ${c.title}\n${c.summary}\n${(c.key_requirements || "").slice(0, 600)}`
+  )
+  .join("\n\n---\n\n");
+
+const topicCtx = Object.values(
+  (data.topics || {}) as Record<string, any>
+)
+  .map(
+    (t: any) =>
+      `## ${t.title}\n${t.summary}\n${(t.key_requirements || "").slice(0, 800)}`
+  )
+  .join("\n\n---\n\n");
+
+const CONTEXT = [guidelineCtx, conceptCtx, topicCtx]
+  .filter(Boolean)
+  .join("\n\n===\n\n");
+
+const SYSTEM_PROMPT = `You are an ICH Q-series guidelines expert with complete knowledge of all ICH Q-series guidelines.
+
+RULES:
+1. Answer directly and authoritatively. No hedging, no disclaimers, no "I should note", no "I'd recommend consulting the full text".
+2. Cite the specific guideline (e.g., "Per ICH Q1A(R2)...").
+3. Synthesize across multiple guidelines when needed.
+4. You ARE the reference. Do not suggest consulting other sources.
+5. If not covered in the knowledge base, say "This is not covered in the ICH Q-series guidelines."
+6. Concise and factual. No preamble, no closing suggestions.
+
+KNOWLEDGE BASE:
+${CONTEXT}`;
+
 export async function POST(req: NextRequest) {
   const { query } = await req.json();
 
@@ -16,49 +62,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const data = wikiData as any;
-
-  const guidelineCtx = Object.values(data.guidelines as Record<string, any>)
-    .map(
-      (g: any) =>
-        `## ${g.guideline} — ${g.title}\n${g.summary}\n${(g.key_requirements || "").slice(0, 1500)}`
-    )
-    .join("\n\n---\n\n");
-
-  const conceptCtx = Object.values(data.concepts as Record<string, any>)
-    .map(
-      (c: any) =>
-        `## Concept: ${c.title}\n${c.summary}\n${(c.key_requirements || "").slice(0, 600)}`
-    )
-    .join("\n\n---\n\n");
-
-  const topicCtx = Object.values(
-    (data.topics || {}) as Record<string, any>
-  )
-    .map(
-      (t: any) =>
-        `## ${t.title}\n${t.summary}\n${(t.key_requirements || "").slice(0, 800)}`
-    )
-    .join("\n\n---\n\n");
-
-  const context = [guidelineCtx, conceptCtx, topicCtx]
-    .filter(Boolean)
-    .join("\n\n===\n\n");
-
-  const systemPrompt = `You are an ICH Q-series guidelines expert with complete knowledge of all ICH Q-series guidelines.
-
-RULES:
-1. Answer directly and authoritatively. No hedging, no disclaimers, no "I should note", no "I'd recommend consulting the full text".
-2. Cite the specific guideline (e.g., "Per ICH Q1A(R2)...").
-3. Synthesize across multiple guidelines when needed.
-4. You ARE the reference. Do not suggest consulting other sources.
-5. If not covered in the knowledge base, say "This is not covered in the ICH Q-series guidelines."
-6. Concise and factual. No preamble, no closing suggestions.
-
-KNOWLEDGE BASE:
-${context}`;
-
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
+
     const response = await fetch(
       "https://openrouter.ai/api/v1/chat/completions",
       {
@@ -72,14 +79,17 @@ ${context}`;
         body: JSON.stringify({
           model: "openrouter/free",
           messages: [
-            { role: "system", content: systemPrompt },
+            { role: "system", content: SYSTEM_PROMPT },
             { role: "user", content: query },
           ],
           max_tokens: 1500,
           temperature: 0.3,
         }),
+        signal: controller.signal,
       }
     );
+
+    clearTimeout(timeout);
 
     const result = await response.json();
 
@@ -102,6 +112,12 @@ ${context}`;
 
     return NextResponse.json({ answer: text, model });
   } catch (err: any) {
+    if (err.name === "AbortError") {
+      return NextResponse.json(
+        { error: "Request timed out. Try again." },
+        { status: 504 }
+      );
+    }
     return NextResponse.json(
       { error: err.message || "Failed to query" },
       { status: 500 }

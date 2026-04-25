@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 
 /* ── Types ───────────────────────────────────────────────────────── */
 type Source = { guideline: string; title: string; excerpt: string };
-type Message = { role: "user" | "assistant"; content: string; sources?: Record<string, Source> };
+type Message = { role: "user" | "assistant"; content: string; sources?: Record<string, Source>; cached?: boolean };
 type Chat = { id: string; title: string; messages: Message[] };
 
 const LOADING_PHRASES = [
@@ -68,10 +68,10 @@ function useVisitorStats() {
 
   useEffect(() => {
     // Register visit
-    fetch("https://visitor.6developer.com/api/visit?domain=ich-wiki-webapp.vercel.app", { method: "POST" }).catch(() => {});
+    fetch("https://visitor.6developer.com/api/visit?domain=ich-guru.vercel.app", { method: "POST" }).catch(() => {});
 
     const fetchStats = () => {
-      fetch("https://visitor.6developer.com/api/stats?domain=ich-wiki-webapp.vercel.app")
+      fetch("https://visitor.6developer.com/api/stats?domain=ich-guru.vercel.app")
         .then(r => r.json())
         .then(d => {
           setStats({
@@ -181,7 +181,7 @@ export default function Home() {
 
       setChats(prev => prev.map(c => {
         if (c.id !== chatId) return c;
-        return { ...c, messages: [...c.messages, { role: "assistant", content: reply, sources }] };
+        return { ...c, messages: [...c.messages, { role: "assistant", content: reply, sources, cached: json.cached || false }] };
       }));
     } catch {
       setChats(prev => prev.map(c => {
@@ -258,7 +258,7 @@ export default function Home() {
             border: "1px solid #e0e0da", borderRadius: 5, cursor: "pointer",
             color: "#888", fontFamily: "inherit", lineHeight: 1,
           }}>{"\u2630"}</button>
-          <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a" }}>ICH Wiki</span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a" }}>ICH Guru</span>
         </div>
 
         {/* Messages */}
@@ -268,7 +268,7 @@ export default function Home() {
               display: "flex", flexDirection: "column", alignItems: "center",
               justifyContent: "center", height: "100%", padding: "40px 20px", textAlign: "center",
             }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: "#1a1a1a", marginBottom: 6, letterSpacing: -0.5 }}>ICH Wiki</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "#1a1a1a", marginBottom: 6, letterSpacing: -0.5 }}>ICH Guru</div>
               <p style={{ fontSize: 13, color: "#888", maxWidth: 400, lineHeight: 1.6, marginBottom: 28 }}>
                 Your regulatory intelligence assistant for ICH Q-series guidelines.
               </p>
@@ -298,7 +298,7 @@ export default function Home() {
                   }}>{msg.role === "user" ? "Y" : "Q"}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: "#999", marginBottom: 3 }}>
-                      {msg.role === "user" ? "You" : "ICH Wiki"}
+                      {msg.role === "user" ? "You" : (<>{"ICH Guru"}{msg.cached && <span style={{ fontSize: 8, color: "#5cb85c", background: "#f0f5f0", padding: "1px 5px", borderRadius: 3, marginLeft: 6, fontWeight: 400 }}>cached</span>}</>)}
                     </div>
                     <div style={{ fontSize: 14, lineHeight: 1.7, color: "#1a1a1a", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                       {msg.content}
@@ -318,7 +318,7 @@ export default function Home() {
                     justifyContent: "center", fontSize: 11, fontWeight: 600, color: "#3a6a3a",
                   }}>Q</div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: "#999", marginBottom: 3 }}>ICH Wiki</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#999", marginBottom: 3 }}>ICH Guru</div>
                     <div style={{ fontSize: 13, color: "#999", display: "flex", alignItems: "center", gap: 8 }}>
                       <span className="loading-dot-container">
                         <span className="loading-dot" style={{ animationDelay: "0s" }} />

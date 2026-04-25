@@ -6,17 +6,37 @@ import { useState, useRef, useEffect, useCallback } from "react";
 type Message = { role: "user" | "assistant"; content: string };
 type Chat = { id: string; title: string; messages: Message[] };
 
+const LOADING_PHRASES = [
+  "Reviewing ICH guidelines",
+  "Cross-referencing Q-series",
+  "Analyzing regulatory requirements",
+  "Checking GMP references",
+  "Consulting quality standards",
+  "Evaluating compliance criteria",
+  "Reviewing stability protocols",
+  "Parsing validation requirements",
+  "Referencing impurity thresholds",
+  "Checking pharmacopoeial texts",
+];
+
 /* ── Main ─────────────────────────────────────────────────────────── */
 export default function Home() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [loadingPhrase, setLoadingPhrase] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const phraseInterval = useRef<any>(null);
 
   const activeChat = chats.find(c => c.id === activeId) || null;
+
+  // Detect desktop
+  useEffect(() => {
+    if (window.innerWidth > 768) setSidebarOpen(true);
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -26,19 +46,36 @@ export default function Home() {
     inputRef.current?.focus();
   }, [activeId]);
 
+  // Rotate loading phrases
+  useEffect(() => {
+    if (loading) {
+      setLoadingPhrase(LOADING_PHRASES[Math.floor(Math.random() * LOADING_PHRASES.length)]);
+      phraseInterval.current = setInterval(() => {
+        setLoadingPhrase(LOADING_PHRASES[Math.floor(Math.random() * LOADING_PHRASES.length)]);
+      }, 2200);
+    } else {
+      if (phraseInterval.current) clearInterval(phraseInterval.current);
+    }
+    return () => { if (phraseInterval.current) clearInterval(phraseInterval.current); };
+  }, [loading]);
+
   const newChat = useCallback(() => {
     const id = Date.now().toString();
     setChats(prev => [{ id, title: "New chat", messages: [] }, ...prev]);
     setActiveId(id);
     setInput("");
+    if (window.innerWidth <= 768) setSidebarOpen(false);
   }, []);
 
   const deleteChat = useCallback((id: string) => {
     setChats(prev => prev.filter(c => c.id !== id));
-    if (activeId === id) {
-      setActiveId(null);
-    }
+    if (activeId === id) setActiveId(null);
   }, [activeId]);
+
+  const selectChat = useCallback((id: string) => {
+    setActiveId(id);
+    if (window.innerWidth <= 768) setSidebarOpen(false);
+  }, []);
 
   const send = async () => {
     if (!input.trim() || loading) return;
@@ -47,8 +84,7 @@ export default function Home() {
 
     if (!chatId) {
       const id = Date.now().toString();
-      const newC: Chat = { id, title: "New chat", messages: [] };
-      setChats(prev => [newC, ...prev]);
+      setChats(prev => [{ id, title: "New chat", messages: [] }, ...prev]);
       chatId = id;
       setActiveId(id);
     }
@@ -56,6 +92,9 @@ export default function Home() {
     const userMsg: Message = { role: "user", content: input.trim() };
     const currentInput = input.trim();
     setInput("");
+
+    // Reset textarea height
+    if (inputRef.current) inputRef.current.style.height = "auto";
 
     setChats(prev => prev.map(c => {
       if (c.id !== chatId) return c;
@@ -84,7 +123,7 @@ export default function Home() {
     } catch (e: any) {
       setChats(prev => prev.map(c => {
         if (c.id !== chatId) return c;
-        return { ...c, messages: [...c.messages, { role: "assistant", content: "Error: " + e.message }] };
+        return { ...c, messages: [...c.messages, { role: "assistant", content: "Connection error. Please try again." }] };
       }));
     }
 
@@ -98,29 +137,26 @@ export default function Home() {
     }
   };
 
-  // Auto-resize textarea
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
     const el = e.target;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 160) + "px";
+    el.style.height = Math.min(el.scrollHeight, 140) + "px";
   };
 
   return (
-    <div style={{ fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", background: "#f9f9f7", color: "#1a1a1a", height: "100vh", display: "flex", overflow: "hidden" }}>
+    <div style={{ fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", background: "#f9f9f7", color: "#1a1a1a", height: "100dvh", display: "flex", overflow: "hidden", position: "relative" }}>
+
+      {/* ── Mobile overlay ────────────────────────────────────── */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          className="sidebar-overlay"
+        />
+      )}
 
       {/* ── Sidebar ──────────────────────────────────────────── */}
-      <aside style={{
-        width: sidebarOpen ? 260 : 0,
-        minWidth: sidebarOpen ? 260 : 0,
-        background: "#eeeee8",
-        borderRight: "1px solid #ddd",
-        display: "flex",
-        flexDirection: "column",
-        transition: "width 0.2s, min-width 0.2s",
-        overflow: "hidden",
-      }}>
-        {/* New chat button */}
+      <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         <div style={{ padding: "14px 12px 8px" }}>
           <button onClick={newChat} style={{
             width: "100%", padding: "10px 14px", fontSize: 13, fontWeight: 500,
@@ -134,15 +170,11 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Chat list */}
         <div style={{ flex: 1, overflow: "auto", padding: "4px 8px" }}>
           {chats.map(chat => (
-            <div key={chat.id} style={{
-              display: "flex", alignItems: "center", gap: 4,
-              marginBottom: 2,
-            }}>
+            <div key={chat.id} style={{ display: "flex", alignItems: "center", gap: 2, marginBottom: 2 }}>
               <button
-                onClick={() => { setActiveId(chat.id); }}
+                onClick={() => selectChat(chat.id)}
                 style={{
                   flex: 1, padding: "9px 12px", fontSize: 12,
                   fontFamily: "inherit", textAlign: "left",
@@ -153,17 +185,16 @@ export default function Home() {
                 }}
               >{chat.title}</button>
               <button onClick={() => deleteChat(chat.id)} style={{
-                padding: "4px 6px", fontSize: 11, background: "none",
-                border: "none", color: "#aaa", cursor: "pointer",
+                padding: "4px 6px", fontSize: 12, background: "none",
+                border: "none", color: "#bbb", cursor: "pointer",
                 borderRadius: 4, flexShrink: 0,
               }}>&times;</button>
             </div>
           ))}
         </div>
 
-        {/* Sidebar footer */}
         <div style={{ padding: "10px 14px", borderTop: "1px solid #ddd", fontSize: 9, color: "#999" }}>
-          ICH LLM Wiki · KJR Labs
+          Powered by ICH Q-Series Knowledge Base
         </div>
       </aside>
 
@@ -174,77 +205,62 @@ export default function Home() {
         <div style={{
           padding: "10px 16px", borderBottom: "1px solid #eee",
           display: "flex", alignItems: "center", gap: 10,
-          background: "#fff",
+          background: "#fff", flexShrink: 0,
         }}>
           <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{
             padding: "4px 8px", fontSize: 14, background: "none",
             border: "1px solid #e0e0da", borderRadius: 5, cursor: "pointer",
             color: "#888", fontFamily: "inherit", lineHeight: 1,
-          }}>{sidebarOpen ? "\u2630" : "\u2630"}</button>
+          }}>{"\u2630"}</button>
           <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a" }}>
             ICH Wiki
-          </span>
-          <span style={{ fontSize: 10, color: "#bbb", fontWeight: 400 }}>
-            28 guidelines · AI-powered
           </span>
         </div>
 
         {/* Messages area */}
-        <div style={{ flex: 1, overflow: "auto", padding: "0" }}>
+        <div style={{ flex: 1, overflow: "auto" }}>
           {!activeChat || activeChat.messages.length === 0 ? (
-            /* Empty state */
             <div style={{
               display: "flex", flexDirection: "column", alignItems: "center",
-              justifyContent: "center", height: "100%", padding: 40, textAlign: "center",
+              justifyContent: "center", height: "100%", padding: "40px 20px", textAlign: "center",
             }}>
-              <div style={{ fontSize: 28, fontWeight: 700, color: "#1a1a1a", marginBottom: 8, letterSpacing: -0.5 }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "#1a1a1a", marginBottom: 6, letterSpacing: -0.5 }}>
                 ICH Wiki
               </div>
-              <p style={{ fontSize: 13, color: "#888", maxWidth: 420, lineHeight: 1.6, marginBottom: 28 }}>
-                Ask questions about ICH Q-series guidelines. Get authoritative answers grounded in 28 guidelines, 8 concepts, and 4 Q&A documents.
+              <p style={{ fontSize: 13, color: "#888", maxWidth: 400, lineHeight: 1.6, marginBottom: 28 }}>
+                Your regulatory intelligence assistant for ICH Q-series guidelines.
               </p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", maxWidth: 550 }}>
+              <div className="suggestions-grid">
                 {[
-                  "What are the accelerated stability conditions per Q1A?",
-                  "What training requirements exist per Q7?",
-                  "What are Class 1 elemental impurities?",
-                  "What is significant change for a drug product?",
-                  "What are the three objectives of Q10 PQS?",
-                  "What is the batch requirement for stability studies?",
+                  "What are the accelerated stability storage conditions?",
+                  "GMP training requirements for API manufacturing?",
+                  "Class 1 elemental impurities and their PDEs?",
+                  "Significant change criteria for drug products?",
+                  "Process validation batch requirements?",
+                  "Design space and control strategy relationship?",
                 ].map(q => (
-                  <button key={q} onClick={() => { setInput(q); inputRef.current?.focus(); }} style={{
-                    padding: "8px 14px", fontSize: 11, fontFamily: "inherit",
-                    background: "#fff", color: "#555", border: "1px solid #e0e0da",
-                    borderRadius: 20, cursor: "pointer", lineHeight: 1.4,
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
-                    maxWidth: 260, textAlign: "left",
-                  }}>{q}</button>
+                  <button key={q} onClick={() => { setInput(q); inputRef.current?.focus(); }} className="suggestion-btn">
+                    {q}
+                  </button>
                 ))}
               </div>
             </div>
           ) : (
-            /* Messages */
-            <div style={{ maxWidth: 720, margin: "0 auto", padding: "20px 24px" }}>
+            <div className="messages-container">
               {activeChat.messages.map((msg, i) => (
-                <div key={i} style={{
-                  marginBottom: 24,
-                  display: "flex",
-                  gap: 12,
-                }}>
-                  {/* Avatar */}
+                <div key={i} style={{ marginBottom: 20, display: "flex", gap: 10 }}>
                   <div style={{
-                    width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-                    background: msg.role === "user" ? "#e0ddd5" : "#d4e8d4",
+                    width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
+                    background: msg.role === "user" ? "#e0ddd5" : "#c8dcc8",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 12, fontWeight: 600, color: msg.role === "user" ? "#666" : "#3a7a3a",
+                    fontSize: 11, fontWeight: 600,
+                    color: msg.role === "user" ? "#666" : "#3a6a3a",
                     marginTop: 2,
                   }}>
-                    {msg.role === "user" ? "Y" : "W"}
+                    {msg.role === "user" ? "Y" : "Q"}
                   </div>
-
-                  {/* Content */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#999", marginBottom: 3 }}>
                       {msg.role === "user" ? "You" : "ICH Wiki"}
                     </div>
                     <div style={{
@@ -258,16 +274,21 @@ export default function Home() {
               ))}
 
               {loading && (
-                <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
+                <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
                   <div style={{
-                    width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-                    background: "#d4e8d4", display: "flex", alignItems: "center",
-                    justifyContent: "center", fontSize: 12, fontWeight: 600, color: "#3a7a3a",
-                  }}>W</div>
+                    width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
+                    background: "#c8dcc8", display: "flex", alignItems: "center",
+                    justifyContent: "center", fontSize: 11, fontWeight: 600, color: "#3a6a3a",
+                  }}>Q</div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: "#888", marginBottom: 4 }}>ICH Wiki</div>
-                    <div style={{ fontSize: 14, color: "#aaa" }}>
-                      <span className="dots">Thinking</span>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#999", marginBottom: 3 }}>ICH Wiki</div>
+                    <div style={{ fontSize: 13, color: "#999", display: "flex", alignItems: "center", gap: 8 }}>
+                      <span className="loading-dot-container">
+                        <span className="loading-dot" style={{ animationDelay: "0s" }} />
+                        <span className="loading-dot" style={{ animationDelay: "0.15s" }} />
+                        <span className="loading-dot" style={{ animationDelay: "0.3s" }} />
+                      </span>
+                      <span className="loading-phrase">{loadingPhrase}</span>
                     </div>
                   </div>
                 </div>
@@ -279,18 +300,8 @@ export default function Home() {
         </div>
 
         {/* Input area */}
-        <div style={{
-          padding: "12px 16px 16px",
-          background: "#f9f9f7",
-        }}>
-          <div style={{
-            maxWidth: 720, margin: "0 auto",
-            background: "#fff", borderRadius: 12,
-            border: "1px solid #d8d8d0",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
-            display: "flex", alignItems: "flex-end",
-            padding: "6px 6px 6px 16px",
-          }}>
+        <div className="input-container">
+          <div className="input-box">
             <textarea
               ref={inputRef}
               value={input}
@@ -302,14 +313,14 @@ export default function Home() {
                 flex: 1, border: "none", outline: "none", resize: "none",
                 fontSize: 14, fontFamily: "inherit", color: "#1a1a1a",
                 background: "transparent", padding: "8px 0",
-                lineHeight: 1.5, maxHeight: 160,
+                lineHeight: 1.5, maxHeight: 140,
               }}
             />
             <button
               onClick={send}
               disabled={loading || !input.trim()}
               style={{
-                width: 34, height: 34, borderRadius: 8,
+                width: 32, height: 32, borderRadius: 8,
                 background: input.trim() && !loading ? "#1a1a1a" : "#e8e8e4",
                 color: input.trim() && !loading ? "#fff" : "#bbb",
                 border: "none", cursor: input.trim() && !loading ? "pointer" : "default",
@@ -317,15 +328,12 @@ export default function Home() {
                 fontSize: 16, flexShrink: 0, transition: "background 0.15s",
               }}
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ transform: "rotate(-90deg)" }}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ transform: "rotate(-90deg)" }}>
                 <path d="M8 2L14 8L8 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M14 8H2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
               </svg>
             </button>
           </div>
-          <p style={{ textAlign: "center", fontSize: 9, color: "#bbb", marginTop: 8 }}>
-            Answers grounded in ICH Q-series guidelines. May not cover all edge cases.
-          </p>
         </div>
       </div>
 
@@ -333,11 +341,85 @@ export default function Home() {
         * { box-sizing: border-box; margin: 0; }
         textarea::placeholder { color: #bbb; }
         button:hover { opacity: 0.92; }
-        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
-        @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-        .dots::after { content: "..."; animation: blink 1.2s infinite; }
+
+        /* Sidebar */
+        .sidebar {
+          width: 260px; min-width: 260px;
+          background: #eeeee8; border-right: 1px solid #ddd;
+          display: flex; flex-direction: column;
+          transition: transform 0.2s ease;
+          z-index: 20;
+        }
+        .sidebar-overlay { display: none; }
+
+        /* Messages */
+        .messages-container {
+          max-width: 680px; margin: 0 auto; padding: 20px 20px;
+        }
+
+        /* Input */
+        .input-container {
+          padding: 10px 16px 14px; background: #f9f9f7; flex-shrink: 0;
+        }
+        .input-box {
+          max-width: 680px; margin: 0 auto;
+          background: #fff; border-radius: 12;
+          border: 1px solid #d8d8d0;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+          display: flex; align-items: flex-end;
+          padding: 6px 6px 6px 16px;
+          border-radius: 12px;
+        }
+
+        /* Suggestions */
+        .suggestions-grid {
+          display: flex; flex-wrap: wrap; gap: 8px;
+          justify-content: center; max-width: 520px;
+        }
+        .suggestion-btn {
+          padding: 8px 14px; font-size: 12px; font-family: inherit;
+          background: #fff; color: #555; border: 1px solid #e0e0da;
+          border-radius: 20px; cursor: pointer; line-height: 1.4;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+          max-width: 240px; text-align: left;
+        }
+
+        /* Loading dots */
+        .loading-dot-container { display: flex; gap: 3px; align-items: center; }
+        .loading-dot {
+          width: 5px; height: 5px; border-radius: 50%;
+          background: #999; animation: dotPulse 1s ease-in-out infinite;
+        }
+        @keyframes dotPulse {
+          0%, 100% { opacity: 0.3; transform: scale(0.8); }
+          50% { opacity: 1; transform: scale(1); }
+        }
+        .loading-phrase {
+          font-style: italic; animation: fadePhrase 2.2s ease-in-out infinite;
+        }
+        @keyframes fadePhrase {
+          0% { opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; }
+        }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+          .sidebar {
+            position: fixed; top: 0; left: 0; bottom: 0;
+            transform: translateX(-100%);
+          }
+          .sidebar.open { transform: translateX(0); }
+          .sidebar-overlay {
+            display: block; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.3); z-index: 15;
+          }
+          .messages-container { padding: 16px 14px; }
+          .input-container { padding: 8px 10px 12px; }
+          .suggestions-grid { gap: 6px; padding: 0 10px; }
+          .suggestion-btn { font-size: 11px; padding: 7px 12px; max-width: 100%; }
+        }
       `}</style>
     </div>
   );

@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import wikiData from "@/lib/wiki-data.json";
 
+const MODELS = [
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "qwen/qwen3-235b-a22b:free",
+  "openrouter/free",
+];
+
 export async function POST(req: NextRequest) {
   const { query } = await req.json();
 
@@ -16,20 +22,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Build context from wiki data
   const data = wikiData as any;
 
   const guidelineCtx = Object.values(data.guidelines as Record<string, any>)
     .map(
       (g: any) =>
-        `## ${g.guideline} — ${g.title}\n${g.summary}\n${(g.key_requirements || "").slice(0, 2000)}\n${(g.definitions || "").slice(0, 500)}`
+        `## ${g.guideline} — ${g.title}\n${g.summary}\n${(g.key_requirements || "").slice(0, 1500)}`
     )
     .join("\n\n---\n\n");
 
   const conceptCtx = Object.values(data.concepts as Record<string, any>)
     .map(
       (c: any) =>
-        `## Concept: ${c.title}\n${c.summary}\n${(c.key_requirements || "").slice(0, 800)}`
+        `## Concept: ${c.title}\n${c.summary}\n${(c.key_requirements || "").slice(0, 600)}`
     )
     .join("\n\n---\n\n");
 
@@ -38,7 +43,7 @@ export async function POST(req: NextRequest) {
   )
     .map(
       (t: any) =>
-        `## ${t.title}\n${t.summary}\n${(t.key_requirements || "").slice(0, 1000)}`
+        `## ${t.title}\n${t.summary}\n${(t.key_requirements || "").slice(0, 800)}`
     )
     .join("\n\n---\n\n");
 
@@ -46,60 +51,72 @@ export async function POST(req: NextRequest) {
     .filter(Boolean)
     .join("\n\n===\n\n");
 
-  const systemPrompt = `You are an ICH Q-series guidelines expert. You have complete knowledge of all ICH Q-series guidelines from the knowledge base below.
+  const systemPrompt = `You are an ICH Q-series guidelines expert with complete knowledge of all ICH Q-series guidelines.
 
 RULES:
-1. Answer directly and authoritatively. Do NOT hedge, qualify, or add disclaimers like "I should note", "I'd recommend consulting", "there may be additional detail", "the knowledge base only contains partial".
-2. Always cite the specific guideline (e.g., "Per ICH Q1A(R2)...").
-3. If the answer requires information from multiple guidelines, synthesize them clearly.
-4. Do NOT suggest the user consult the full guideline text — you ARE the guideline reference.
-5. Do NOT say "this is just a summary" or "there may be more". Answer the question completely from what you have.
-6. If the specific information is genuinely not covered in any of the guidelines below, say "This specific topic is not covered in the ICH Q-series guidelines" — nothing more.
-7. Keep answers concise and factual. No preamble, no closing suggestions.
+1. Answer directly and authoritatively. No hedging, no disclaimers, no "I should note", no "I'd recommend consulting the full text".
+2. Cite the specific guideline (e.g., "Per ICH Q1A(R2)...").
+3. Synthesize across multiple guidelines when needed.
+4. You ARE the reference. Do not suggest consulting other sources.
+5. If not covered in the knowledge base, say "This is not covered in the ICH Q-series guidelines."
+6. Concise and factual. No preamble, no closing suggestions.
 
 KNOWLEDGE BASE:
 ${context}`;
 
-  try {
-    const response = await fetch(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://ich-wiki.vercel.app",
-          "X-Title": "ICH LLM Wiki",
-        },
-        body: JSON.stringify({
-          model: "meta-llama/llama-3.3-70b-instruct:free",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: query },
-          ],
-          max_tokens: 1500,
-          temperature: 0.3,
-        }),
-      }
-    );
+  let lastError = "";
 
-    const result = await response.json();
-
-    if (result.error) {
-      return NextResponse.json(
-        { error: result.error.message || "API error" },
-        { status: 502 }
+  for (const model of MODELS) {
+    try {
+      const response = await fetch(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer":
+              process.env.VERCEL_URL
+                ? `https://${process.env.VERCEL_URL}`
+                : "http://localhost:3000",
+            "X-Title": "ICH LLM Wiki",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: query },
+            ],
+            max_tokens: 1500,
+            temperature: 0.3,
+          }),
+        }
       );
+
+      const result = await response.json();
+
+      if (result.error) {
+        lastError = `${model}: ${result.error.message || JSON.stringify(result.error)}`;
+        continue;
+      }
+
+      const text =
+        result.choices?.[0]?.message?.content || "";
+
+      if (!text) {
+        lastError = `${model}: Empty response`;
+        continue;
+      }
+
+      return NextResponse.json({ answer: text, model });
+    } catch (err: any) {
+      lastError = `${model}: ${err.message}`;
+      continue;
     }
-
-    const text =
-      result.choices?.[0]?.message?.content || "No response received.";
-
-    return NextResponse.json({ answer: text });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || "Failed to query" },
-      { status: 500 }
-    );
   }
+
+  return NextResponse.json(
+    { error: `All models failed. Last error: ${lastError}` },
+    { status: 502 }
+  );
 }

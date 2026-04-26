@@ -179,7 +179,7 @@ export default function Home() {
       const res = await fetch("/api/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: currentInput }),
+        body: JSON.stringify({ query: currentInput, history: activeChat?.messages || [] }),
       });
       const json = await res.json();
       const reply = json.answer || json.error || "No response.";

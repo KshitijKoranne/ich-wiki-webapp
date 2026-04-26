@@ -93,7 +93,7 @@ function getExcerpts(sourceIds: string[]): Record<string, { guideline: string; t
 
 /* ── Handler ─────────────────────────────────────────────────────── */
 export async function POST(req: NextRequest) {
-  const { query } = await req.json();
+  const { query, history } = await req.json();
 
   if (!query || typeof query !== "string" || query.trim().length === 0) {
     return NextResponse.json({ error: "Query is required" }, { status: 400 });
@@ -104,11 +104,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "OPENROUTER_API_KEY not configured" }, { status: 500 });
   }
 
+  const isMultiTurn = Array.isArray(history) && history.length > 0;
   const cacheKey = `ichguru:${normalizeQuery(query)}`;
   const r = getRedis();
 
-  // Check cache
-  if (r) {
+  // Only use cache for single-turn queries
+  if (!isMultiTurn && r) {
     try {
       const cached = await r.get<{ answer: string; sources: Record<string, any> }>(cacheKey);
       if (cached) {
@@ -118,6 +119,22 @@ export async function POST(req: NextRequest) {
       // Cache miss or error — continue
     }
   }
+
+  // Build messages: system + prior turns + current query
+  const priorMessages = isMultiTurn
+    ? history
+        .slice(-6) // last 3 exchanges (6 messages) to stay within token budget
+        .map((m: { role: string; content: string }) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        }))
+    : [];
+
+  const messages = [
+    { role: "system" as const, content: SYSTEM_PROMPT },
+    ...priorMessages,
+    { role: "user" as const, content: query },
+  ];
 
   // Call OpenRouter
   try {
@@ -134,10 +151,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: "openrouter/free",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: query },
-        ],
+        messages,
         max_tokens: 1500,
         temperature: 0.3,
       }),

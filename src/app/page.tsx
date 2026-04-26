@@ -67,24 +67,30 @@ function useVisitorStats() {
   const [stats, setStats] = useState({ online: 0, total: 0, peak: 0 });
 
   useEffect(() => {
-    // Register visit
-    fetch("https://visitor.6developer.com/api/visit?domain=ich-guru.vercel.app", { method: "POST" }).catch(() => {});
+    let sid = sessionStorage.getItem("ichguru-sid");
+    const firstVisit = !sid;
+    if (!sid) {
+      sid = crypto.randomUUID();
+      sessionStorage.setItem("ichguru-sid", sid);
+    }
 
-    const fetchStats = () => {
-      fetch("https://visitor.6developer.com/api/stats?domain=ich-guru.vercel.app")
+    const heartbeat = (isFirst = false) => {
+      fetch("/api/stats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sid, firstVisit: isFirst }),
+      })
         .then(r => r.json())
         .then(d => {
-          setStats({
-            online: d.online || d.activeVisitors || 0,
-            total: d.totalVisitors || d.total || 0,
-            peak: d.peakOnline || d.peak || 0,
-          });
+          if (typeof d.online === "number") {
+            setStats({ online: d.online, total: d.total || 0, peak: d.peak || 0 });
+          }
         })
         .catch(() => {});
     };
 
-    fetchStats();
-    const interval = setInterval(fetchStats, 30000);
+    heartbeat(firstVisit);
+    const interval = setInterval(() => heartbeat(false), 30000);
     return () => clearInterval(interval);
   }, []);
 

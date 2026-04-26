@@ -2,17 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import wikiData from "@/lib/wiki-data.json";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 /* ── Lazy Redis ──────────────────────────────────────────────────── */
 let redis: Redis | null = null;
+let redisInitTried = false;
 
 function getRedis(): Redis | null {
-  if (!redis && process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
-    });
+  if (redis) return redis;
+  if (redisInitTried) return null;
+  redisInitTried = true;
+
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url?.startsWith("https://") || !token) return null;
+
+  try {
+    redis = new Redis({ url, token });
+    return redis;
+  } catch (e) {
+    console.warn("Redis init failed:", (e as Error).message);
+    return null;
   }
-  return redis;
 }
 
 /* ── Normalize query for cache key ───────────────────────────────── */

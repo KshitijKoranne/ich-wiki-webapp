@@ -105,6 +105,9 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [loadingPhrase, setLoadingPhrase] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackForm, setFeedbackForm] = useState({ name: "", liked: "", suggestion: "" });
+  const [feedbackStatus, setFeedbackStatus] = useState<"idle" | "sending" | "done" | "error">("idle");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const phraseInterval = useRef<any>(null);
@@ -334,18 +337,21 @@ export default function Home() {
             color: "#888", fontFamily: "inherit", lineHeight: 1,
           }}>{"\u2630"}</button>
           <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a" }}>ICH Guru</span>
-          <a
-            href="https://buymeacoffee.com/kshitijkorz"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              marginLeft: "auto", display: "flex", alignItems: "center", gap: 5,
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => { setFeedbackOpen(true); setFeedbackStatus("idle"); }} style={{
+              display: "flex", alignItems: "center", gap: 5,
+              padding: "4px 10px", fontSize: 12, fontWeight: 500,
+              background: "#f0f0ea", color: "#555", borderRadius: 5,
+              border: "1px solid #e0e0da", cursor: "pointer", whiteSpace: "nowrap", lineHeight: 1.4,
+            }}>Feedback</button>
+            <a href="https://buymeacoffee.com/kshitijkorz" target="_blank" rel="noopener noreferrer" style={{
+              display: "flex", alignItems: "center", gap: 5,
               padding: "4px 10px", fontSize: 12, fontWeight: 500,
               background: "#FFDD00", color: "#1a1a1a", borderRadius: 5,
               textDecoration: "none", border: "none", cursor: "pointer",
               whiteSpace: "nowrap", lineHeight: 1.4,
-            }}
-          >☕ Buy me a coffee</a>
+            }}>☕ Buy me a coffee</a>
+          </div>
         </div>
 
         {/* Messages */}
@@ -467,6 +473,93 @@ export default function Home() {
           </span>
         </div>
       </div>
+
+      {/* Feedback Modal */}
+      {feedbackOpen && (
+        <div onClick={() => setFeedbackOpen(false)} style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 50,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 420,
+            boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+          }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#1a1a1a", marginBottom: 4 }}>Share your feedback</div>
+            <div style={{ fontSize: 12, color: "#999", marginBottom: 18 }}>Help us improve ICH Guru</div>
+
+            {feedbackStatus === "done" ? (
+              <div style={{ textAlign: "center", padding: "20px 0", color: "#3a6a3a", fontSize: 14 }}>
+                Thank you for your feedback!
+                <div style={{ marginTop: 12 }}>
+                  <button onClick={() => setFeedbackOpen(false)} style={{
+                    padding: "6px 16px", fontSize: 12, background: "#1a1a1a", color: "#fff",
+                    border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit",
+                  }}>Close</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {[
+                  { label: "Your name", key: "name", placeholder: "Optional" },
+                  { label: "What did you like?", key: "liked", placeholder: "Optional" },
+                  { label: "Any suggestions?", key: "suggestion", placeholder: "Tell us how we can improve..." },
+                ].map(({ label, key, placeholder }) => (
+                  <div key={key} style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#555", marginBottom: 5 }}>{label}</div>
+                    <textarea
+                      rows={key === "suggestion" ? 3 : 1}
+                      placeholder={placeholder}
+                      value={feedbackForm[key as keyof typeof feedbackForm]}
+                      onChange={e => setFeedbackForm(prev => ({ ...prev, [key]: e.target.value }))}
+                      style={{
+                        width: "100%", border: "1px solid #e0e0da", borderRadius: 7, padding: "8px 10px",
+                        fontSize: 13, fontFamily: "inherit", resize: "none", outline: "none",
+                        background: "#fafaf8", color: "#1a1a1a", lineHeight: 1.5,
+                      }}
+                    />
+                  </div>
+                ))}
+                {feedbackStatus === "error" && (
+                  <div style={{ fontSize: 11, color: "#c0392b", marginBottom: 10 }}>Something went wrong. Please try again.</div>
+                )}
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button onClick={() => setFeedbackOpen(false)} style={{
+                    padding: "7px 14px", fontSize: 12, background: "none", color: "#888",
+                    border: "1px solid #e0e0da", borderRadius: 6, cursor: "pointer", fontFamily: "inherit",
+                  }}>Cancel</button>
+                  <button
+                    disabled={feedbackStatus === "sending"}
+                    onClick={async () => {
+                      setFeedbackStatus("sending");
+                      try {
+                        const res = await fetch("/api/feedback", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(feedbackForm),
+                        });
+                        if (res.ok) {
+                          setFeedbackStatus("done");
+                          setFeedbackForm({ name: "", liked: "", suggestion: "" });
+                        } else {
+                          setFeedbackStatus("error");
+                        }
+                      } catch {
+                        setFeedbackStatus("error");
+                      }
+                    }}
+                    style={{
+                      padding: "7px 16px", fontSize: 12, fontWeight: 600,
+                      background: feedbackStatus === "sending" ? "#888" : "#1a1a1a",
+                      color: "#fff", border: "none", borderRadius: 6, cursor: feedbackStatus === "sending" ? "default" : "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >{feedbackStatus === "sending" ? "Sending..." : "Submit"}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <style>{`
         * { box-sizing: border-box; margin: 0; }

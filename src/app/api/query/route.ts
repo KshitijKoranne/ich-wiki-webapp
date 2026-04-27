@@ -138,10 +138,8 @@ export async function POST(req: NextRequest) {
 
   // Call OpenRouter with cascading fallback
   const MODELS = [
-    { id: "meta-llama/llama-3.3-70b-instruct:free", timeout: 4000 },
-    { id: "google/gemma-3-27b-it:free", timeout: 4000 },
-    { id: "mistralai/mistral-7b-instruct:free", timeout: 5000 },
-    { id: "openrouter/auto", timeout: 6000 },
+    { id: "meta-llama/llama-3.3-70b-instruct:free", timeout: 8500 },
+    { id: "openrouter/auto", timeout: 8500 },
   ];
 
   let text = "";

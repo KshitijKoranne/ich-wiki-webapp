@@ -136,38 +136,56 @@ export async function POST(req: NextRequest) {
     { role: "user" as const, content: query },
   ];
 
-  // Call OpenRouter
+  // Call OpenRouter with cascading fallback
+  const MODELS = [
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "google/gemma-3-27b-it:free",
+    "mistralai/mistral-7b-instruct:free",
+    "openrouter/auto",
+  ];
+
+  let text = "";
+  let usedModel = "";
+  let lastError = "";
+
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 9000);
+    for (const model of MODELS) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://ich-guru.vercel.app",
-        "X-Title": "ICH Guru",
-      },
-      body: JSON.stringify({
-        model: "openrouter/free",
-        messages,
-        max_tokens: 1500,
-        temperature: 0.3,
-      }),
-      signal: controller.signal,
-    });
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://ich-guru.vercel.app",
+            "X-Title": "ICH Guru",
+          },
+          body: JSON.stringify({ model, messages, max_tokens: 1500, temperature: 0.3 }),
+          signal: controller.signal,
+        });
 
-    clearTimeout(timeout);
-    const result = await response.json();
+        clearTimeout(timeout);
+        const result = await response.json();
 
-    if (result.error) {
-      return NextResponse.json({ error: result.error.message || JSON.stringify(result.error) }, { status: 502 });
+        if (result.error || !result.choices?.[0]?.message?.content) {
+          lastError = result.error?.message || "Empty response";
+          continue; // try next model
+        }
+
+        text = result.choices[0].message.content;
+        usedModel = result.model || model;
+        break; // success
+      } catch (e: any) {
+        lastError = e.message || "Request failed";
+        // AbortError = timeout, other errors = model unavailable — try next
+        continue;
+      }
     }
 
-    let text = result.choices?.[0]?.message?.content || "";
     if (!text) {
-      return NextResponse.json({ error: "Empty response from model" }, { status: 502 });
+      return NextResponse.json({ error: `All models failed. Last error: ${lastError}` }, { status: 502 });
     }
 
     let sources: Record<string, any> = {};
@@ -178,7 +196,7 @@ export async function POST(req: NextRequest) {
       text = text.replace(/\n?SOURCES:.+$/m, "").trim();
     }
 
-    const responseData = { answer: text, sources, model: result.model || "openrouter/free" };
+    const responseData = { answer: text, sources, model: usedModel };
 
     // Cache
     if (r) {

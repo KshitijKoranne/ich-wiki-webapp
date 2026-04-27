@@ -138,10 +138,10 @@ export async function POST(req: NextRequest) {
 
   // Call OpenRouter with cascading fallback
   const MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "google/gemma-3-27b-it:free",
-    "mistralai/mistral-7b-instruct:free",
-    "openrouter/auto",
+    { id: "meta-llama/llama-3.3-70b-instruct:free", timeout: 4000 },
+    { id: "google/gemma-3-27b-it:free", timeout: 4000 },
+    { id: "mistralai/mistral-7b-instruct:free", timeout: 5000 },
+    { id: "openrouter/auto", timeout: 6000 },
   ];
 
   let text = "";
@@ -149,10 +149,10 @@ export async function POST(req: NextRequest) {
   let lastError = "";
 
   try {
-    for (const model of MODELS) {
+    for (const { id: model, timeout: ms } of MODELS) {
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000);
+        const timeout = setTimeout(() => controller.abort(), ms);
 
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",

@@ -1,42 +1,44 @@
-# ICH Wiki
+# ICH Guru — Regulatory Intelligence for ICH Q-Series
 
-Structured knowledge base of ICH Q-series guidelines with AI-powered query interface.
+An AI-powered assistant for pharmaceutical regulatory professionals. Ask questions in plain language and get accurate, cited answers from ICH Q-series guidelines — instantly.
 
-Built using Karpathy's LLM Wiki pattern.
+**Live at [ich-guru.vercel.app](https://ich-guru.vercel.app)**
 
-## Features
-
-- **Knowledge Graph** — interactive visualization of 40 nodes (28 guidelines + 8 concepts + 4 topics) with 235 cross-reference connections
-- **Browse** — all guidelines organized by category with full-text search
-- **Ask AI** — query the wiki using natural language, powered by Llama 3.3 70B via OpenRouter (free)
-
-## Deploy to Vercel
-
-1. Fork this repo
-2. Go to [vercel.com](https://vercel.com), import the repo
-3. Add environment variable: `OPENROUTER_API_KEY` = your key from [openrouter.ai](https://openrouter.ai)
-4. Deploy
-
-## Local Development
-
-```bash
-npm install
-cp .env.example .env.local
-# Add your OpenRouter API key to .env.local
-npm run dev
-```
-
-## Stack
-
-- Next.js 15 + TypeScript
-- OpenRouter API (Llama 3.3 70B free tier)
-- Canvas-based knowledge graph
-- No database — wiki data is compiled JSON
-
-## Data Source
-
-Wiki pages are compiled from the [ICH-LLM-Wiki](https://github.com/KshitijKoranne/ICH-LLM-Wiki-) repository containing 60+ ICH Q-series guideline PDFs.
+Built by [KJR Labs](https://kjrlabs.in)
 
 ---
 
-KJR Labs
+## What it does
+
+ICH Guru lets you query all 28 ICH Q-series guidelines (Q1A through Q14) using natural language. No searching through PDFs, no cross-referencing documents manually — just ask.
+
+- **Ask anything** — stability conditions, impurity limits, process validation requirements, quality systems, GMP expectations, and more
+- **Multi-turn conversations** — follow-up questions work naturally, context is remembered within a session
+- **Cited answers** — every response references the specific ICH guideline it draws from
+- **Fast** — responses stream in real time, no waiting for full answers to load
+
+## Who it's for
+
+Pharmaceutical quality assurance professionals, regulatory affairs teams, R&D scientists, and anyone working with ICH Q-series guidelines day-to-day.
+
+## Guidelines covered
+
+All 28 ICH Q-series guidelines including stability (Q1 series), analytical procedures (Q2), impurities (Q3 series), biologics (Q5 series), specifications (Q6 series), GMP for APIs (Q7), pharmaceutical development (Q8), quality risk management (Q9), pharmaceutical quality system (Q10), and more through Q14.
+
+## License
+
+This software is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)** with additional attribution and commercial use terms.
+
+In plain terms:
+- You may view and study the source code
+- Any deployment (including modified versions) must remain open-source under the same license
+- Commercial use requires written permission from KJR Labs
+- Attribution to KJR Labs must be retained in any deployment
+
+See [LICENSE](./LICENSE) for full terms.
+
+For commercial licensing enquiries, visit [kjrlabs.in](https://kjrlabs.in).
+
+---
+
+© 2025 Kshitij Koranne / [KJR Labs](https://kjrlabs.in)

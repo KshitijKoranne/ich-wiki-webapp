@@ -118,7 +118,7 @@ export default function Home() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeChat?.messages.length, loading]);
+  }, [activeChat?.messages]);
 
   useEffect(() => { inputRef.current?.focus(); }, [activeId]);
 
@@ -175,20 +175,89 @@ export default function Home() {
     }));
 
     setLoading(true);
+
+    // Capture history before state update
+    const historySnapshot = activeChat?.messages || [];
+
     try {
       const res = await fetch("/api/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: currentInput, history: activeChat?.messages || [] }),
+        body: JSON.stringify({ query: currentInput, history: historySnapshot }),
       });
-      const json = await res.json();
-      const reply = json.answer || json.error || "No response.";
-      const sources = json.sources || {};
 
+      const contentType = res.headers.get("content-type") || "";
+
+      // Cached response — plain JSON
+      if (contentType.includes("application/json")) {
+        const json = await res.json();
+        const reply = json.answer || json.error || "No response.";
+        const sources = json.sources || {};
+        setChats(prev => prev.map(c => {
+          if (c.id !== chatId) return c;
+          return { ...c, messages: [...c.messages, { role: "assistant", content: reply, sources, cached: true }] };
+        }));
+        setLoading(false);
+        return;
+      }
+
+      // Streaming response — SSE
+      if (!res.body) throw new Error("No response body");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let streamedText = "";
+      let streamStarted = false;
+
+      // Add empty assistant message to fill in
       setChats(prev => prev.map(c => {
         if (c.id !== chatId) return c;
-        return { ...c, messages: [...c.messages, { role: "assistant", content: reply, sources, cached: json.cached || false }] };
+        return { ...c, messages: [...c.messages, { role: "assistant", content: "", sources: {} }] };
       }));
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) continue;
+          const payload = trimmed.slice(5).trim();
+          try {
+            const parsed = JSON.parse(payload);
+
+            if (parsed.token) {
+              if (!streamStarted) {
+                streamStarted = true;
+                setLoading(false); // hide loader once first token arrives
+              }
+              streamedText += parsed.token;
+              const snap = streamedText;
+              setChats(prev => prev.map(c => {
+                if (c.id !== chatId) return c;
+                const msgs = [...c.messages];
+                msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: snap };
+                return { ...c, messages: msgs };
+              }));
+            }
+
+            if (parsed.done) {
+              const sources = parsed.sources || {};
+              setChats(prev => prev.map(c => {
+                if (c.id !== chatId) return c;
+                const msgs = [...c.messages];
+                msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], sources, cached: false };
+                return { ...c, messages: msgs };
+              }));
+            }
+          } catch { /* skip */ }
+        }
+      }
     } catch {
       setChats(prev => prev.map(c => {
         if (c.id !== chatId) return c;

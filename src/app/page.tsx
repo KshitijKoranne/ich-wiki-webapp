@@ -265,6 +265,18 @@ export default function Home() {
             color: "#888", fontFamily: "inherit", lineHeight: 1,
           }}>{"\u2630"}</button>
           <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a" }}>ICH Guru</span>
+          <a
+            href="https://buymeacoffee.com/kshitijkorz"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              marginLeft: "auto", display: "flex", alignItems: "center", gap: 5,
+              padding: "4px 10px", fontSize: 12, fontWeight: 500,
+              background: "#FFDD00", color: "#1a1a1a", borderRadius: 5,
+              textDecoration: "none", border: "none", cursor: "pointer",
+              whiteSpace: "nowrap", lineHeight: 1.4,
+            }}
+          >☕ Buy me a coffee</a>
         </div>
 
         {/* Messages */}

@@ -100,8 +100,10 @@ export async function POST(req: NextRequest) {
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "OPENROUTER_API_KEY not configured" }, { status: 500 });
+  const nvidiaKey = process.env.NVIDIA_API_KEY;
+
+  if (!apiKey && !nvidiaKey) {
+    return NextResponse.json({ error: "No API key configured" }, { status: 500 });
   }
 
   const isMultiTurn = Array.isArray(history) && history.length > 0;
@@ -136,38 +138,58 @@ export async function POST(req: NextRequest) {
     { role: "user" as const, content: query },
   ];
 
-  // Call OpenRouter
+  // Call NVIDIA NIM first, fall back to OpenRouter
   let text = "";
   let usedModel = "";
 
+  const PROVIDERS = [
+    ...(nvidiaKey ? [{
+      url: "https://integrate.api.nvidia.com/v1/chat/completions",
+      auth: nvidiaKey,
+      model: "meta/llama-3.3-70b-instruct",
+      timeout: 9000,
+    }] : []),
+    ...(apiKey ? [{
+      url: "https://openrouter.ai/api/v1/chat/completions",
+      auth: apiKey,
+      model: "openrouter/auto",
+      timeout: 9000,
+    }] : []),
+  ];
+
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 9000);
+    for (const provider of PROVIDERS) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), provider.timeout);
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://ich-guru.vercel.app",
-        "X-Title": "ICH Guru",
-      },
-      body: JSON.stringify({ model: "openrouter/auto", messages, max_tokens: 1500, temperature: 0.3 }),
-      signal: controller.signal,
-    });
+        const response = await fetch(provider.url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${provider.auth}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://ich-guru.vercel.app",
+            "X-Title": "ICH Guru",
+          },
+          body: JSON.stringify({ model: provider.model, messages, max_tokens: 1500, temperature: 0.3 }),
+          signal: controller.signal,
+        });
 
-    clearTimeout(timeout);
-    const result = await response.json();
+        clearTimeout(timer);
+        const result = await response.json();
 
-    if (result.error) {
-      return NextResponse.json({ error: result.error.message || JSON.stringify(result.error) }, { status: 502 });
+        if (result.error || !result.choices?.[0]?.message?.content) continue;
+
+        text = result.choices[0].message.content;
+        usedModel = result.model || provider.model;
+        break;
+      } catch {
+        continue;
+      }
     }
 
-    text = result.choices?.[0]?.message?.content || "";
-    usedModel = result.model || "openrouter/auto";
-
     if (!text) {
-      return NextResponse.json({ error: "Empty response from model" }, { status: 502 });
+      return NextResponse.json({ error: "Service temporarily unavailable. Please try again." }, { status: 502 });
     }
 
     let sources: Record<string, any> = {};
